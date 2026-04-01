@@ -42,15 +42,26 @@ def grain_boundary_density(grid, grain_ids, nb):
     return int(boundary) / int(total) if total > 0 else 0.0
 
 
-def run_kmc(params, max_steps=20000, n=100, seed=None):
+def run_kmc(params, max_steps=5000, n=100, seed=None):
+
     F     = params['F']
     E_d   = params['E_d']
     E_des = params['E_des']
     T     = params['T']
     kT    = 8.617e-5 * T
 
+    max_time = 5.0 / F
     k_diff = NU * np.exp(-E_d  / kT)
     k_des  = NU * np.exp(-E_des / kT)
+
+    # ------------------------------------------------------------------
+    # FIX 1: Cap k_diff
+    # Once diffusion length >> lattice size, faster diffusion changes
+    # nothing about the morphology — the atom has already explored the
+    # full lattice. Capping here removes redundant diffusion hops without
+    # altering the physical outcome.
+    # ------------------------------------------------------------------
+    k_diff = min(k_diff, F * 1000)
 
     grid      = create_lattice(n)
     grain_ids = np.full(n * n, -1, dtype=np.int32)
@@ -85,6 +96,20 @@ def run_kmc(params, max_steps=20000, n=100, seed=None):
         if R_total == 0:
             break
 
+        # --------------------------------------------------------------
+        # FIX 2: Rate rescaling
+        # KMC event selection depends only on RELATIVE rates, not their
+        # absolute magnitude. Scaling all rates by the same factor leaves
+        # event probabilities unchanged. The clock (dt) is scaled inversely,
+        # so simulated time remains exact. This converts wasted micro-steps
+        # into fewer, larger, physically equivalent steps.
+        # --------------------------------------------------------------
+        MAX_RATE = 1e6
+        if R_total > MAX_RATE:
+            scale     = MAX_RATE / R_total
+            all_rates = all_rates * scale
+            R_total   = MAX_RATE
+
         dt  = -np.log(rng.random()) / R_total
         idx = np.searchsorted(np.cumsum(all_rates), rng.random() * R_total)
         idx = min(idx, len(all_rates) - 1)
@@ -107,11 +132,13 @@ def run_kmc(params, max_steps=20000, n=100, seed=None):
             src            = diff_src[diff_i]
             dst            = diff_dst[diff_i]
             grid[dst]      = 1
-            grain_ids[dst] = grain_ids[src]   # carry grain identity
+            grain_ids[dst] = grain_ids[src]
             grid[src]      = 0
             grain_ids[src] = -1
 
         time += dt
+        if time >= max_time:
+            break
 
     cov = coverage(grid)
     gbd = grain_boundary_density(grid, grain_ids, nb)

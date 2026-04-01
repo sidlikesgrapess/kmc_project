@@ -5,8 +5,8 @@ from simulator.events import run_kmc
 BOUNDS = {
     'F'    : (1e-2, 1.0),
     'E_d'  : (0.1,  0.8),
-    'E_des': (1.0,  2.0),
-    'T'    : (200,  600),
+    'E_des': (1.6,  2.0),  # raised further
+    'T'    : (200,  350),  # tightened further
 }
 
 
@@ -28,10 +28,11 @@ def latin_hypercube_sample(n_samples, bounds, seed=42):
     return params, keys
 
 
-def run_one(i, params, max_steps=20000, n=100):
+# Change n to 40 and raise max_steps
+def run_one(i, params, max_steps=5000, n=100): 
     print(f"Sim {i+1:>3}/200 | F={params['F']:.4f} E_d={params['E_d']:.2f} "
           f"E_des={params['E_des']:.2f} T={params['T']:.0f}")
-    # seed derived from index → reproducible across reruns
+    
     cov, gbd, t = run_kmc(params, max_steps=max_steps, n=n, seed=i)
     return cov, gbd, t
 
@@ -40,7 +41,7 @@ if __name__ == '__main__':
     import os
     os.makedirs('data', exist_ok=True)
 
-    param_list, keys = latin_hypercube_sample(200, BOUNDS)
+    param_list, keys = latin_hypercube_sample(50, BOUNDS)
 
     with parallel_backend('loky'):
         results = Parallel(n_jobs=-1, verbose=1)(
