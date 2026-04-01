@@ -1,10 +1,48 @@
 import numpy as np
-from simulator.lattice import get_neighbors, create_lattice, coverage, grain_boundary_density
-from simulator.grain_tracking import add_site
+from simulator.lattice import create_lattice, coverage, build_neighbor_table
+from simulator.grain_tracking import reset_grain_counter, new_grain_id
 
-NU = 1e12
+NU = 1e12  # attempt frequency (Hz)
 
-def compute_rates(grid, params, n=100):
+
+def _assign_grain(site, grid, grain_ids, nb):
+    """
+    Called on adsorption only.
+    - No occupied neighbours → new nucleation event, new grain ID.
+    - Occupied neighbours    → join the first neighbour's grain.
+    Two grains touching is a grain BOUNDARY, not a merge — union-find is wrong here.
+    """
+    for k in range(6):
+        n_site = nb[site, k]
+        if n_site >= 0 and grid[n_site] == 1 and grain_ids[n_site] >= 0:
+            grain_ids[site] = grain_ids[n_site]
+            return
+    grain_ids[site] = new_grain_id()
+
+
+def grain_boundary_density(grid, grain_ids, nb):
+    """
+    Fraction of occupied-occupied neighbour pairs with different grain IDs.
+    Each edge counted twice (both endpoints); ratio is unaffected.
+    """
+    occupied = np.where(grid == 1)[0]
+    if len(occupied) == 0:
+        return 0.0
+
+    boundary = 0
+    total    = 0
+    for k in range(6):
+        nb_sites = nb[occupied, k]
+        nb_safe  = np.where(nb_sites >= 0, nb_sites, 0)
+        valid    = (nb_sites >= 0) & (grid[nb_safe] == 1)
+        total   += valid.sum()
+        diff     = valid & (grain_ids[occupied] != grain_ids[nb_safe])
+        boundary += diff.sum()
+
+    return int(boundary) / int(total) if total > 0 else 0.0
+
+
+def run_kmc(params, max_steps=20000, n=100, seed=None):
     F     = params['F']
     E_d   = params['E_d']
     E_des = params['E_des']
@@ -14,59 +52,67 @@ def compute_rates(grid, params, n=100):
     k_diff = NU * np.exp(-E_d  / kT)
     k_des  = NU * np.exp(-E_des / kT)
 
-    events = []
-    rates  = []
-
-    empty_sites    = list(zip(*np.where(grid == 0)))
-    occupied_sites = list(zip(*np.where(grid == 1)))
-
-    for (r, c) in empty_sites:
-        events.append(('ads', r, c, None))
-        rates.append(F)
-
-    for (r, c) in occupied_sites:
-        events.append(('des', r, c, None))
-        rates.append(k_des)
-        for (nr, nc) in get_neighbors(r, c, n):
-            if grid[nr, nc] == 0:
-                events.append(('diff', r, c, (nr, nc)))
-                rates.append(k_diff)
-
-    return events, np.array(rates, dtype=np.float64)
-
-
-def execute_event(event, grid, n=100):
-    etype, r, c, target = event
-    if etype == 'ads':
-        add_site(r, c, grid)
-    elif etype == 'des':
-        grid[r, c] = 0
-    elif etype == 'diff':
-        nr, nc = target
-        grid[r, c] = 0
-        add_site(nr, nc, grid) 
-
-
-def run_kmc(params, max_time=10.0, max_steps=100000, n=100):
-    grid = create_lattice(n)
+    grid      = create_lattice(n)
+    grain_ids = np.full(n * n, -1, dtype=np.int32)
+    nb        = build_neighbor_table(n)
+    rng       = np.random.default_rng(seed)
+    reset_grain_counter()
     time = 0.0
 
-    for step in range(max_steps):
-        if time >= max_time:
+    for _ in range(max_steps):
+        empty_idx    = np.where(grid == 0)[0]
+        occupied_idx = np.where(grid == 1)[0]
+
+        if len(empty_idx) == 0:
             break
-            
-        events, rates = compute_rates(grid, params, n)
-        R_total = rates.sum()
+
+        n_ads = len(empty_idx)
+        n_occ = len(occupied_idx)
+
+        ads_rates = np.full(n_ads, F)
+        des_rates = np.full(n_occ, k_des)
+
+        neighbors  = nb[occupied_idx]
+        nb_safe    = np.where(neighbors >= 0, neighbors, 0)
+        empty_nb   = (neighbors >= 0) & (grid[nb_safe] == 0)
+        src_idx, nb_col = np.where(empty_nb)
+        diff_src   = occupied_idx[src_idx]
+        diff_dst   = neighbors[src_idx, nb_col]
+        diff_rates = np.full(len(diff_src), k_diff)
+
+        all_rates = np.concatenate([ads_rates, des_rates, diff_rates])
+        R_total   = all_rates.sum()
         if R_total == 0:
             break
 
-        dt  = -np.log(np.random.rand()) / R_total
-        idx = np.searchsorted(np.cumsum(rates), np.random.rand() * R_total)
-        idx = min(idx, len(events) - 1)
+        dt  = -np.log(rng.random()) / R_total
+        idx = np.searchsorted(np.cumsum(all_rates), rng.random() * R_total)
+        idx = min(idx, len(all_rates) - 1)
 
-        execute_event(events[idx], grid, n)
+        if idx < n_ads:
+            # adsorption
+            site       = empty_idx[idx]
+            grid[site] = 1
+            _assign_grain(site, grid, grain_ids, nb)
+
+        elif idx < n_ads + n_occ:
+            # desorption
+            site            = occupied_idx[idx - n_ads]
+            grid[site]      = 0
+            grain_ids[site] = -1
+
+        else:
+            # diffusion — atom carries its grain ID, no reassignment
+            diff_i         = idx - n_ads - n_occ
+            src            = diff_src[diff_i]
+            dst            = diff_dst[diff_i]
+            grid[dst]      = 1
+            grain_ids[dst] = grain_ids[src]   # carry grain identity
+            grid[src]      = 0
+            grain_ids[src] = -1
+
         time += dt
 
     cov = coverage(grid)
-    gbd = grain_boundary_density(grid, n)
+    gbd = grain_boundary_density(grid, grain_ids, nb)
     return cov, gbd, time
