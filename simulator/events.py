@@ -9,8 +9,8 @@ def _assign_grain(site, grid, grain_ids, nb):
     """
     Called on adsorption only.
     - No occupied neighbours → new nucleation event, new grain ID.
-    - Occupied neighbours    → join the first neighbour's grain.
-    Two grains touching is a grain BOUNDARY, not a merge — union-find is wrong here.
+    - Occupied neighbours    → join the first neighbour's grain. idt this is true to physics
+    Two grains touching is a grain BOUNDARY.
     """
     for k in range(6):
         n_site = nb[site, k]
@@ -20,7 +20,7 @@ def _assign_grain(site, grid, grain_ids, nb):
     grain_ids[site] = new_grain_id()
 
 
-def grain_boundary_density(grid, grain_ids, nb):
+def grain_boundary_density(grid, grain_ids, nb): #is this correct?
     """
     Fraction of occupied-occupied neighbour pairs with different grain IDs.
     Each edge counted twice (both endpoints); ratio is unaffected.
@@ -42,7 +42,7 @@ def grain_boundary_density(grid, grain_ids, nb):
     return int(boundary) / int(total) if total > 0 else 0.0
 
 
-def run_kmc(params, max_steps=5000, n=100, seed=None):
+def run_kmc(params, max_steps=5000000, n=100, seed=None):
 
     F     = params['F']
     E_d   = params['E_d']
@@ -61,7 +61,7 @@ def run_kmc(params, max_steps=5000, n=100, seed=None):
     # full lattice. Capping here removes redundant diffusion hops without
     # altering the physical outcome.
     # ------------------------------------------------------------------
-    k_diff = min(k_diff, F * 1000)
+    k_diff = min(k_diff, F * 1000) #not physically accurate
 
     grid      = create_lattice(n)
     grain_ids = np.full(n * n, -1, dtype=np.int32)
@@ -70,7 +70,7 @@ def run_kmc(params, max_steps=5000, n=100, seed=None):
     reset_grain_counter()
     time = 0.0
 
-    for _ in range(max_steps):
+    for _ in range(int(max_steps)):
         empty_idx    = np.where(grid == 0)[0]
         occupied_idx = np.where(grid == 1)[0]
 
@@ -80,11 +80,11 @@ def run_kmc(params, max_steps=5000, n=100, seed=None):
         n_ads = len(empty_idx)
         n_occ = len(occupied_idx)
 
-        ads_rates = np.full(n_ads, F)
-        des_rates = np.full(n_occ, k_des)
+        ads_rates = np.full(n_ads, F)# where ads is possible
+        des_rates = np.full(n_occ, k_des)# where des is possible
 
-        neighbors  = nb[occupied_idx]
-        nb_safe    = np.where(neighbors >= 0, neighbors, 0)
+        neighbors  = nb[occupied_idx]#
+        nb_safe    = np.where(neighbors >= 0, neighbors, 0)# 
         empty_nb   = (neighbors >= 0) & (grid[nb_safe] == 0)
         src_idx, nb_col = np.where(empty_nb)
         diff_src   = occupied_idx[src_idx]
@@ -104,11 +104,11 @@ def run_kmc(params, max_steps=5000, n=100, seed=None):
         # so simulated time remains exact. This converts wasted micro-steps
         # into fewer, larger, physically equivalent steps.
         # --------------------------------------------------------------
-        MAX_RATE = 1e6
-        if R_total > MAX_RATE:
-            scale     = MAX_RATE / R_total
-            all_rates = all_rates * scale
-            R_total   = MAX_RATE
+        # MAX_RATE = 1e6
+        # if R_total > MAX_RATE:
+        #     scale     = MAX_RATE / R_total
+        #     all_rates = all_rates * scale
+        #     R_total   = MAX_RATE
 
         dt  = -np.log(rng.random()) / R_total
         idx = np.searchsorted(np.cumsum(all_rates), rng.random() * R_total)
@@ -142,4 +142,5 @@ def run_kmc(params, max_steps=5000, n=100, seed=None):
 
     cov = coverage(grid)
     gbd = grain_boundary_density(grid, grain_ids, nb)
+    print(f"\n        Ended at step {_} | Time: {time:.2f} / {max_time:.2f}")
     return cov, gbd, time

@@ -2,11 +2,18 @@ import numpy as np
 from joblib import Parallel, delayed, parallel_backend
 from simulator.events import run_kmc
 
+# BOUNDS = {
+#     'F'    : (0.1, 1.0),
+#     'E_d'  : (0.3,  0.8),
+#     'E_des': (1.4,  2.0),  # raised further
+#     'T'    : (200,  400),  # tightened further
+# }
+
 BOUNDS = {
-    'F'    : (1e-2, 1.0),
-    'E_d'  : (0.1,  0.8),
-    'E_des': (1.6,  2.0),  # raised further
-    'T'    : (200,  350),  # tightened further
+    'F'    : (0.01, 1.0),   # ML/s, typical MBE range
+    'E_d'  : (0.1,  0.8),   # eV, metal-on-metal diffusion barriers
+    'E_des': (1.0,  3.0),   # eV, metallic binding energies
+    'T'    : (200,  800),   # K, cryogenic to near-melting
 }
 
 
@@ -28,8 +35,8 @@ def latin_hypercube_sample(n_samples, bounds, seed=42):
     return params, keys
 
 
-# Change n to 40 and raise max_steps
-def run_one(i, params, max_steps=5000, n=100): 
+# Change n to 100 and raise max_steps
+def run_one(i, params, max_steps=5000000, n=100): 
     print(f"Sim {i+1:>3}/200 | F={params['F']:.4f} E_d={params['E_d']:.2f} "
           f"E_des={params['E_des']:.2f} T={params['T']:.0f}")
     
@@ -41,7 +48,7 @@ if __name__ == '__main__':
     import os
     os.makedirs('data', exist_ok=True)
 
-    param_list, keys = latin_hypercube_sample(50, BOUNDS)
+    param_list, keys = latin_hypercube_sample(10, BOUNDS)
 
     with parallel_backend('loky'):
         results = Parallel(n_jobs=-1, verbose=1)(
@@ -58,5 +65,5 @@ if __name__ == '__main__':
              X=X, coverages=coverages, gbds=gbds, times=times,
              param_keys=keys)
 
-    print(f"\nDone. Coverage range : {coverages.min():.3f} – {coverages.max():.3f}")
-    print(f"GBD range      : {gbds.min():.3f} – {gbds.max():.3f}")
+    print(f"\n      Done. Coverage range : {coverages.min():.3f} – {coverages.max():.3f}")
+    print(f"        GBD range      : {gbds.min():.3f} – {gbds.max():.3f}")
