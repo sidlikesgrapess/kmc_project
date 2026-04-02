@@ -37,7 +37,7 @@ def latin_hypercube_sample(n_samples, bounds, seed=42):
 
 # Change n to 100 and raise max_steps
 def run_one(i, params, max_steps=5000000, n=100): 
-    print(f"Sim {i+1:>3}/200 | F={params['F']:.4f} E_d={params['E_d']:.2f} "
+    print(f"Sim {i+1:>3}/200 | F={params['F']:.4f} E_d={params['E_d']:.2f} " 
           f"E_des={params['E_des']:.2f} T={params['T']:.0f}")
     
     cov, gbd, t = run_kmc(params, max_steps=max_steps, n=n, seed=i)
