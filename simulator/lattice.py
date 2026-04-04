@@ -31,5 +31,4 @@ def create_lattice(n=N):
 
 
 def coverage(grid):
-    print(f"Current coverage: {grid.sum()} / {grid.size} = {grid.sum() / grid.size:.4f}")
     return grid.sum() / grid.size

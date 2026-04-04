@@ -42,7 +42,26 @@ def grain_boundary_density(grid, grain_ids, nb): #is this correct?
     return int(boundary) / int(total) if total > 0 else 0.0
 
 
-def run_kmc(params, max_steps=5000000, n=100, seed=None):
+def _pick_kth_true(mask_row, k):
+    """Return column index of the k-th True in a 1D boolean row."""
+    count = 0
+    for col, is_true in enumerate(mask_row):
+        if is_true:
+            if count == k:
+                return col
+            count += 1
+    return -1
+
+
+def run_kmc(
+    params,
+    max_steps=5000000,
+    n=100,
+    seed=None,
+    time_factor=5.0,
+    target_coverage=None,
+    max_diff_to_ads_ratio=120.0,
+):
 
     F     = params['F']
     E_d   = params['E_d']
@@ -50,7 +69,7 @@ def run_kmc(params, max_steps=5000000, n=100, seed=None):
     T     = params['T']
     kT    = 8.617e-5 * T
 
-    max_time = 5.0 / F
+    max_time = time_factor / F
     k_diff = NU * np.exp(-E_d  / kT)
     k_des  = NU * np.exp(-E_des / kT)
 
@@ -61,7 +80,10 @@ def run_kmc(params, max_steps=5000000, n=100, seed=None):
     # full lattice. Capping here removes redundant diffusion hops without
     # altering the physical outcome.
     # ------------------------------------------------------------------
-    k_diff = min(k_diff, F * 1000) #not physically accurate
+    # Optional speed heuristic: cap diffusion so the event stream is not
+    # completely dominated by diffusion hops. Set to None for uncapped kinetics.
+    if max_diff_to_ads_ratio is not None:
+        k_diff = min(k_diff, max_diff_to_ads_ratio * F)
 
     grid      = create_lattice(n)
     grain_ids = np.full(n * n, -1, dtype=np.int32)
@@ -69,6 +91,10 @@ def run_kmc(params, max_steps=5000000, n=100, seed=None):
     rng       = np.random.default_rng(seed)
     reset_grain_counter()
     time = 0.0
+    n_sites = n * n
+    target_sites = None
+    if target_coverage is not None:
+        target_sites = int(np.ceil(target_coverage * n_sites))
 
     for _ in range(int(max_steps)):
         empty_idx    = np.where(grid == 0)[0]
@@ -80,19 +106,20 @@ def run_kmc(params, max_steps=5000000, n=100, seed=None):
         n_ads = len(empty_idx)
         n_occ = len(occupied_idx)
 
-        ads_rates = np.full(n_ads, F)# where ads is possible
-        des_rates = np.full(n_occ, k_des)# where des is possible
+        if target_sites is not None and n_occ >= target_sites:
+            break
+
+        R_ads = n_ads * F
+        R_des = n_occ * k_des
 
         neighbors  = nb[occupied_idx]#
         nb_safe    = np.where(neighbors >= 0, neighbors, 0)# 
         empty_nb   = (neighbors >= 0) & (grid[nb_safe] == 0)
-        src_idx, nb_col = np.where(empty_nb)
-        diff_src   = occupied_idx[src_idx]
-        diff_dst   = neighbors[src_idx, nb_col]
-        diff_rates = np.full(len(diff_src), k_diff)
+        empty_nb_count = empty_nb.sum(axis=1)
+        n_diff_edges = int(empty_nb_count.sum())
+        R_diff = n_diff_edges * k_diff
 
-        all_rates = np.concatenate([ads_rates, des_rates, diff_rates])
-        R_total   = all_rates.sum()
+        R_total = R_ads + R_des + R_diff
         if R_total == 0:
             break
 
@@ -111,26 +138,43 @@ def run_kmc(params, max_steps=5000000, n=100, seed=None):
         #     R_total   = MAX_RATE
 
         dt  = -np.log(rng.random()) / R_total
-        idx = np.searchsorted(np.cumsum(all_rates), rng.random() * R_total)
-        idx = min(idx, len(all_rates) - 1)
+        event_pick = rng.random() * R_total
 
-        if idx < n_ads:
+        if event_pick < R_ads:
             # adsorption
-            site       = empty_idx[idx]
+            site       = empty_idx[rng.integers(n_ads)]
             grid[site] = 1
             _assign_grain(site, grid, grain_ids, nb)
 
-        elif idx < n_ads + n_occ:
+        elif event_pick < R_ads + R_des:
             # desorption
-            site            = occupied_idx[idx - n_ads]
+            site            = occupied_idx[rng.integers(n_occ)]
             grid[site]      = 0
             grain_ids[site] = -1
 
         else:
-            # diffusion — atom carries its grain ID, no reassignment
-            diff_i         = idx - n_ads - n_occ
-            src            = diff_src[diff_i]
-            dst            = diff_dst[diff_i]
+            # diffusion — sample one of all possible empty-neighbor hops
+            if n_diff_edges == 0:
+                time += dt
+                if time >= max_time:
+                    break
+                continue
+
+            hop_pick = rng.integers(n_diff_edges)
+            csum = np.cumsum(empty_nb_count)
+            src_pos = np.searchsorted(csum, hop_pick, side='right')
+            src = occupied_idx[src_pos]
+
+            prev = 0 if src_pos == 0 else csum[src_pos - 1]
+            local_k = int(hop_pick - prev)
+            nb_col = _pick_kth_true(empty_nb[src_pos], local_k)
+            if nb_col < 0:
+                time += dt
+                if time >= max_time:
+                    break
+                continue
+
+            dst = neighbors[src_pos, nb_col]
             grid[dst]      = 1
             grain_ids[dst] = grain_ids[src]
             grid[src]      = 0

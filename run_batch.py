@@ -16,6 +16,11 @@ BOUNDS = {
     'T'    : (200,  800),   # K, cryogenic to near-melting
 }
 
+KMC_MAX_STEPS = 1500000
+KMC_TIME_FACTOR = 5.0
+KMC_TARGET_COVERAGE = None
+KMC_MAX_DIFF_TO_ADS_RATIO = 120.0
+
 
 def latin_hypercube_sample(n_samples, bounds, seed=42):
     rng    = np.random.default_rng(seed)
@@ -35,12 +40,19 @@ def latin_hypercube_sample(n_samples, bounds, seed=42):
     return params, keys
 
 
-# Change n to 100 and raise max_steps
-def run_one(i, params, max_steps=5000000, n=100): 
+def run_one(i, params, max_steps=KMC_MAX_STEPS, n=100):
     print(f"Sim {i+1:>3}/200 | F={params['F']:.4f} E_d={params['E_d']:.2f} " 
           f"E_des={params['E_des']:.2f} T={params['T']:.0f}")
-    
-    cov, gbd, t = run_kmc(params, max_steps=max_steps, n=n, seed=i)
+
+    cov, gbd, t = run_kmc(
+        params,
+        max_steps=max_steps,
+        n=n,
+        seed=i,
+        time_factor=KMC_TIME_FACTOR,
+        target_coverage=KMC_TARGET_COVERAGE,
+        max_diff_to_ads_ratio=KMC_MAX_DIFF_TO_ADS_RATIO,
+    )
     return cov, gbd, t
 
 
@@ -48,7 +60,7 @@ if __name__ == '__main__':
     import os
     os.makedirs('data', exist_ok=True)
 
-    param_list, keys = latin_hypercube_sample(10, BOUNDS)
+    param_list, keys = latin_hypercube_sample(200, BOUNDS)
 
     with parallel_backend('loky'):
         results = Parallel(n_jobs=-1, verbose=1)(
