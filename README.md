@@ -62,6 +62,7 @@ Predicted at this point:
 - P(coverage >= 0.8) = 0.9998
 - coverage LCB = 0.9203
 
+*Important - This result is not physically accurate due to my error in generating the dataset. I am trying to fix the parameters to get a diverse coverage and gbd to train the model on.
 ## Important Interpretation Notes
 1. The optimizer currently clips surrogate means to [0, 1]. This keeps outputs physical but can flatten objective ranking when many candidates hit gbd mean = 0.0.
 2. The BO script is surrogate-driven, not closed-loop with simulator updates after each suggestion.
