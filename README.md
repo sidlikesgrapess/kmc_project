@@ -95,6 +95,22 @@ Run constrained optimization (coverage >= 0.8):
 This writes:
 - [models/bo_result.json](models/bo_result.json)
 
+## Generating Simulation Movies
+You can generate visual animations (.mp4 or .gif) of a single kMC simulation run using the `make_simulation_movie.py` script. The script applies a strict physical stability rule: by default, any atom with 2 or more occupied neighbors is permanently locked in place (cannot detach or diffuse) unless it loses neighbors.
+
+Generate a standard movie representing a 50,000 step simulation at 10 FPS:
+```bash
+python make_simulation_movie.py --max-steps 50000 --fps 10 --snapshot-every 10 --out movies/sim_50k.mp4
+```
+
+**Key Parameters**:
+- `--F`, `--E_d`, `--E_des`, `--T`: Physical simulation parameters.
+- `--max-steps`: Total number of kMC steps to simulate (default: 1,500,000).
+- `--snapshot-every`: Capture a frame every N steps (e.g., 10 or 20 for smoother playback on long runs).
+- `--fps`: Frames per second of the output video.
+- `--immobile-if-neighbors-ge`: Minimum occupied neighbors for an atom to become immobile (default: 2).
+- `--out`: Output file path. Use `.mp4` for much smaller, faster-rendering files, or `.gif` if FFMpeg is not available on your system.
+
 ## Project Structure
 - [simulator/events.py](simulator/events.py): kMC event loop and grain/GBD logic
 - [simulator/lattice.py](simulator/lattice.py): lattice and neighbor table
