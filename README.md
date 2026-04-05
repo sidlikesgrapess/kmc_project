@@ -128,7 +128,7 @@ python make_simulation_movie.py --max-steps 50000 --fps 10 --snapshot-every 10 -
 - [bayesian_optimize.py](bayesian_optimize.py): constrained surrogate optimization
 - [verify_dataset.py](verify_dataset.py): quick dataset diagnostics
 
-## Dependencies
-- numpy
-- scikit-learn
-- joblib
+**Contributors**
+- Siddartha Guha
+- Chatgpt Codex
+- Claude
