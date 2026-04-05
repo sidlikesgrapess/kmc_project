@@ -72,18 +72,24 @@ Predicted at this point:
 
 Install requirements:
 
-  pip install -r requirements.txt
+```bash
+pip install -r requirements.txt
+```
 
 Generate a 200-run dataset:
 
-  python run_batch.py
+```bash
+python run_batch.py
+```
 
 This writes:
 - [data/dataset.npz](data/dataset.npz)
 
 Train GP surrogate models:
 
-  python gp_surrogate.py
+```bash
+python gp_surrogate.py
+```
 
 This writes:
 - [models/gp_coverage.pkl](models/gp_coverage.pkl)
@@ -91,7 +97,9 @@ This writes:
 
 Run constrained optimization (coverage >= 0.8):
 
-  python bayesian_optimize.py --coverage-target 0.80 --n-init 20 --n-iter 80 --n-candidates 5000 --seed 42 --bounds-source training
+```bash
+python bayesian_optimize.py --coverage-target 0.80 --n-init 20 --n-iter 80 --n-candidates 5000 --seed 42 --bounds-source training
+```
 
 This writes:
 - [models/bo_result.json](models/bo_result.json)
